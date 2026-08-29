@@ -1,0 +1,991 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autonomous Revenue Recovery System | AI Agent Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  
+  <!-- React, ReactDOM, Babel, Recharts CDNs -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+  <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    :root {
+      --bg-base: #090d16;
+      --bg-surface: #0f172a;
+      --bg-surface-elevated: #1e293b;
+      --bg-card: rgba(15, 23, 42, 0.75);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --border-accent: rgba(56, 189, 248, 0.3);
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --accent-green: #10b981;
+      --accent-green-glow: rgba(16, 185, 129, 0.2);
+      --accent-cyan: #06b6d4;
+      --accent-blue: #3b82f6;
+      --accent-amber: #f59e0b;
+      --accent-rose: #f43f5e;
+      --accent-purple: #8b5cf6;
+      --font-main: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-base);
+      background-image: 
+        radial-gradient(at 0% 0%, rgba(56, 189, 248, 0.08) 0px, transparent 50%),
+        radial-gradient(at 100% 0%, rgba(16, 185, 129, 0.08) 0px, transparent 50%),
+        radial-gradient(at 50% 100%, rgba(139, 92, 246, 0.06) 0px, transparent 50%);
+      color: var(--text-primary);
+      font-family: var(--font-main);
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+      line-height: 1.5;
+    }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.2);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.25);
+    }
+
+    .container {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 24px 32px 64px 32px;
+    }
+
+    /* Header */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 24px;
+      margin-bottom: 28px;
+      border-bottom: 1px solid var(--border-color);
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .logo-container {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .logo-badge {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #10b981 0%, #06b6d4 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 20px rgba(16, 185, 129, 0.35);
+      font-weight: 800;
+      font-size: 20px;
+      color: #fff;
+    }
+
+    .header-title h1 {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, #ffffff 0%, #94a3b8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .header-title p {
+      font-size: 13px;
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+
+    .controls-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 18px;
+      border-radius: 10px;
+      font-family: var(--font-main);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      border: 1px solid transparent;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      color: #fff;
+      box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);
+    }
+    .btn-primary:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(16, 185, 129, 0.45);
+    }
+    .btn-primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: var(--border-color);
+      color: var(--text-secondary);
+    }
+    .btn-secondary:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-primary);
+    }
+
+    /* Live Pulse */
+    .live-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 20px;
+      background: rgba(16, 185, 129, 0.1);
+      border: 1px solid rgba(16, 185, 129, 0.25);
+      color: var(--accent-green);
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .pulse-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background-color: var(--accent-green);
+      box-shadow: 0 0 8px var(--accent-green);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+      100% { opacity: 1; transform: scale(1); }
+    }
+
+    /* KPI Grid */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+
+    .kpi-card {
+      background: var(--bg-card);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 20px;
+      transition: all 0.25s ease;
+      position: relative;
+      overflow: hidden;
+    }
+    .kpi-card:hover {
+      border-color: rgba(255, 255, 255, 0.15);
+      transform: translateY(-2px);
+    }
+
+    .kpi-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      opacity: 0.8;
+    }
+    .kpi-card.green::before { background: linear-gradient(90deg, #10b981, transparent); }
+    .kpi-card.cyan::before { background: linear-gradient(90deg, #06b6d4, transparent); }
+    .kpi-card.purple::before { background: linear-gradient(90deg, #8b5cf6, transparent); }
+    .kpi-card.blue::before { background: linear-gradient(90deg, #3b82f6, transparent); }
+    .kpi-card.amber::before { background: linear-gradient(90deg, #f59e0b, transparent); }
+    .kpi-card.rose::before { background: linear-gradient(90deg, #f43f5e, transparent); }
+
+    .kpi-label {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+    }
+
+    .kpi-value {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--text-primary);
+      display: flex;
+      align-items: baseline;
+      gap: 4px;
+    }
+
+    .kpi-subtext {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 6px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* Charts Section */
+    .charts-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(460px, 1fr));
+      gap: 20px;
+      margin-bottom: 28px;
+    }
+
+    .card {
+      background: var(--bg-card);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 24px;
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .card-title {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: var(--text-primary);
+    }
+
+    .card-subtitle {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    /* Table Section */
+    .table-container {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+    }
+
+    th {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border-color);
+      white-space: nowrap;
+    }
+
+    td {
+      font-size: 13px;
+      padding: 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      color: var(--text-primary);
+      vertical-align: middle;
+    }
+
+    tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .clickable-row {
+      cursor: pointer;
+    }
+    .clickable-row:hover td {
+      background: rgba(56, 189, 248, 0.04);
+    }
+
+    /* Badges */
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .status-badge.recovered {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    .status-badge.escalated {
+      background: rgba(244, 63, 94, 0.15);
+      color: #fb7185;
+      border: 1px solid rgba(244, 63, 94, 0.3);
+    }
+    .status-badge.in-progress {
+      background: rgba(56, 189, 248, 0.15);
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.3);
+    }
+    .status-badge.detected {
+      background: rgba(245, 158, 11, 0.15);
+      color: #fbbf24;
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+
+    .priority-badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 6px;
+    }
+    .priority-high { background: rgba(244, 63, 94, 0.15); color: #f43f5e; }
+    .priority-medium { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
+    .priority-low { background: rgba(148, 163, 184, 0.15); color: #94a3b8; }
+
+    /* Modal Drilldown */
+    .modal-backdrop {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(8px);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 100;
+      padding: 24px;
+    }
+
+    .modal-content {
+      background: #0f172a;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 20px;
+      max-width: 900px;
+      width: 100%;
+      max-height: 90vh;
+      overflow-y: auto;
+      padding: 28px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .close-btn {
+      background: rgba(255, 255, 255, 0.06);
+      border: none;
+      color: var(--text-secondary);
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .close-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      color: #fff;
+    }
+
+    /* Timeline Stepper */
+    .timeline {
+      position: relative;
+      padding-left: 28px;
+      margin-top: 20px;
+    }
+    .timeline::before {
+      content: '';
+      position: absolute;
+      top: 8px;
+      bottom: 8px;
+      left: 11px;
+      width: 2px;
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .timeline-step {
+      position: relative;
+      margin-bottom: 20px;
+    }
+
+    .timeline-dot {
+      position: absolute;
+      left: -28px;
+      top: 4px;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--bg-surface-elevated);
+      border: 2px solid #38bdf8;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: bold;
+    }
+    .timeline-dot.pass { border-color: #10b981; color: #10b981; }
+    .timeline-dot.block { border-color: #f43f5e; color: #f43f5e; }
+    .timeline-dot.recovered { border-color: #10b981; background: #10b981; color: #fff; }
+
+    .step-card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 14px 16px;
+    }
+
+    .step-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .step-layer {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--accent-cyan);
+    }
+
+    .step-decision {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .step-time {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+
+    .json-box {
+      background: #060911;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 8px;
+      padding: 10px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: #cbd5e1;
+      overflow-x: auto;
+      margin-top: 8px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    /* Filters */
+    .filter-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .tab-btn {
+      background: transparent;
+      border: 1px solid var(--border-color);
+      color: var(--text-secondary);
+      padding: 6px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .tab-btn.active {
+      background: rgba(56, 189, 248, 0.15);
+      border-color: rgba(56, 189, 248, 0.4);
+      color: #38bdf8;
+    }
+
+    .progress-bar-container {
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 3px;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #10b981, #06b6d4);
+      transition: width 0.3s ease;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+    const { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, PieChart, Pie, Cell } = Recharts;
+
+    const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#06b6d4', '#f43f5e'];
+
+    function App() {
+      const [metrics, setMetrics] = useState(null);
+      const [rootCauses, setRootCauses] = useState([]);
+      const [actionsBreakdown, setActionsBreakdown] = useState([]);
+      const [escalationsBreakdown, setEscalationsBreakdown] = useState({ escalations_by_reason: [], blocks_by_reason: [] });
+      const [transactions, setTransactions] = useState([]);
+      const [batchStatus, setBatchStatus] = useState({ is_running: false, total: 0, processed: 0 });
+      const [selectedTx, setSelectedTx] = useState(null);
+      const [filterStatus, setFilterStatus] = useState('ALL');
+      const [isLoading, setIsLoading] = useState(true);
+
+      const fetchData = async () => {
+        try {
+          const [mRes, rcRes, actRes, escRes, txRes, bRes] = await Promise.all([
+            fetch('/api/metrics').then(r => r.json()),
+            fetch('/api/breakdown/root-cause').then(r => r.json()),
+            fetch('/api/breakdown/actions').then(r => r.json()),
+            fetch('/api/breakdown/escalations').then(r => r.json()),
+            fetch('/api/transactions?limit=200').then(r => r.json()),
+            fetch('/api/batch/status').then(r => r.json())
+          ]);
+          setMetrics(mRes);
+          setRootCauses(rcRes);
+          setActionsBreakdown(actRes);
+          setEscalationsBreakdown(escRes);
+          setTransactions(txRes);
+          setBatchStatus(bRes);
+          setIsLoading(false);
+        } catch (err) {
+          console.error("Failed to fetch dashboard data:", err);
+        }
+      };
+
+      useEffect(() => {
+        fetchData();
+        const interval = setInterval(fetchData, 1000);
+        return () => clearInterval(interval);
+      }, []);
+
+      const runBatch = async () => {
+        await fetch('/api/batch/run?size=60&speed=normal', { method: 'POST' });
+        fetchData();
+      };
+
+      const resetDb = async () => {
+        if (confirm("Reset database state for clean test run?")) {
+          await fetch('/api/batch/reset', { method: 'POST' });
+          fetchData();
+        }
+      };
+
+      const viewTransaction = async (risk_id) => {
+        try {
+          const res = await fetch(`/api/transactions/${risk_id}`);
+          const data = await res.json();
+          setSelectedTx(data);
+        } catch (e) {
+          console.error("Failed to fetch transaction detail:", e);
+        }
+      };
+
+      const filteredTransactions = transactions.filter(tx => {
+        if (filterStatus === 'ALL') return true;
+        return tx.status === filterStatus;
+      });
+
+      return (
+        <div className="container">
+          {/* Header */}
+          <div className="header">
+            <div className="logo-container">
+              <div className="logo-badge">⚡</div>
+              <div className="header-title">
+                <h1>Autonomous Revenue Recovery System</h1>
+                <p>Closed-Loop Financial Recovery & Guardrail Compliance Engine</p>
+              </div>
+            </div>
+
+            <div className="controls-group">
+              <div className="live-badge">
+                <span className="pulse-dot"></span>
+                <span>SYSTEM LIVE</span>
+              </div>
+
+              <button 
+                className="btn btn-primary" 
+                onClick={runBatch} 
+                disabled={batchStatus.is_running}
+              >
+                {batchStatus.is_running 
+                  ? `Processing (${batchStatus.processed}/${batchStatus.total})...` 
+                  : "▶ Run Synthetic Batch (65 Events)"}
+              </button>
+
+              <button className="btn btn-secondary" onClick={resetDb} disabled={batchStatus.is_running}>
+                ↻ Reset State
+              </button>
+            </div>
+          </div>
+
+          {/* Batch Progress Bar if Running */}
+          {batchStatus.is_running && (
+            <div style={{ marginBottom: '24px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                <span>Executing multi-step recovery workflows...</span>
+                <span>{batchStatus.processed} / {batchStatus.total} Events ({Math.round((batchStatus.processed / (batchStatus.total || 1)) * 100)}%)</span>
+              </div>
+              <div className="progress-bar-container">
+                <div 
+                  className="progress-bar-fill" 
+                  style={{ width: `${(batchStatus.processed / (batchStatus.total || 1)) * 100}%` }}
+                ></div>
+              </div>
+            </div>
+          )}
+
+          {/* KPI Cards */}
+          <div className="kpi-grid">
+            <div className="kpi-card cyan">
+              <div className="kpi-label">Revenue At Risk</div>
+              <div className="kpi-value">
+                ₹{metrics ? metrics.total_revenue_at_risk.toLocaleString('en-IN') : '0'}
+              </div>
+              <div className="kpi-subtext">Total analyzed failed revenue</div>
+            </div>
+
+            <div className="kpi-card green">
+              <div className="kpi-label">Revenue Recovered</div>
+              <div className="kpi-value" style={{ color: '#10b981' }}>
+                ₹{metrics ? metrics.total_revenue_recovered.toLocaleString('en-IN') : '0'}
+              </div>
+              <div className="kpi-subtext">Successfully settled into bank</div>
+            </div>
+
+            <div className="kpi-card purple">
+              <div className="kpi-label">Recovery Rate</div>
+              <div className="kpi-value">
+                {metrics ? metrics.recovery_rate_pct : 0}%
+              </div>
+              <div className="kpi-subtext">Total recovered / total at risk</div>
+            </div>
+
+            <div className="kpi-card blue">
+              <div className="kpi-label">Transactions</div>
+              <div className="kpi-value">
+                {metrics ? metrics.transactions_count : 0}
+              </div>
+              <div className="kpi-subtext">
+                {metrics ? metrics.recovered_count : 0} recovered ({metrics ? metrics.successful_attempts_count : 0} actions)
+              </div>
+            </div>
+
+            <div className="kpi-card amber">
+              <div className="kpi-label">Guardrail Blocks</div>
+              <div className="kpi-value" style={{ color: '#f59e0b' }}>
+                {metrics ? metrics.guardrail_blocks_count : 0}
+              </div>
+              <div className="kpi-subtext">Compliance policy hard-stops</div>
+            </div>
+
+            <div className="kpi-card rose">
+              <div className="kpi-label">Escalations</div>
+              <div className="kpi-value" style={{ color: '#f43f5e' }}>
+                {metrics ? metrics.escalations_count : 0}
+              </div>
+              <div className="kpi-subtext">Routed to human finance ops</div>
+            </div>
+          </div>
+
+          {/* Charts Row */}
+          <div className="charts-grid">
+            {/* Root Cause Chart */}
+            <div className="card">
+              <div className="card-header">
+                <div>
+                  <div className="card-title">Root Cause Breakdown</div>
+                  <div className="card-subtitle">Volume & Recovered ₹ by Failure Reason</div>
+                </div>
+              </div>
+              <div style={{ height: 260 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={rootCauses}>
+                    <XAxis dataKey="root_cause" stroke="#64748b" fontSize={11} />
+                    <YAxis stroke="#64748b" fontSize={11} />
+                    <Tooltip 
+                      contentStyle={{ background: '#0f172a', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '8px' }}
+                      formatter={(val, name) => [name === 'recovered_amount' || name === 'total_at_risk' ? `₹${val.toLocaleString()}` : val, name]}
+                    />
+                    <Legend />
+                    <Bar dataKey="total_at_risk" fill="#38bdf8" name="At Risk (₹)" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="recovered_amount" fill="#10b981" name="Recovered (₹)" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Action Performance Chart */}
+            <div className="card">
+              <div className="card-header">
+                <div>
+                  <div className="card-title">Action Execution Performance</div>
+                  <div className="card-subtitle">Attempts, Successes & Failures by Action Type</div>
+                </div>
+              </div>
+              <div style={{ height: 260 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={actionsBreakdown}>
+                    <XAxis dataKey="action_type" stroke="#64748b" fontSize={11} />
+                    <YAxis stroke="#64748b" fontSize={11} />
+                    <Tooltip 
+                      contentStyle={{ background: '#0f172a', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '8px' }}
+                    />
+                    <Legend />
+                    <Bar dataKey="attempts" fill="#8b5cf6" name="Attempts" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="successes" fill="#10b981" name="Successes" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="failures" fill="#f43f5e" name="Failures" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+
+          {/* Escalations & Block Summary */}
+          <div className="card" style={{ marginBottom: '28px' }}>
+            <div className="card-header">
+              <div>
+                <div className="card-title">Compliance Guardrails & Escalation Summary</div>
+                <div className="card-subtitle">Detailed breakdown of policy blocks and playbook exhaustion reasons</div>
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
+              <div>
+                <h4 style={{ fontSize: '13px', color: '#f59e0b', marginBottom: '12px', fontWeight: '700' }}>
+                  🛡️ Guardrail Hard-Stop Reasons
+                </h4>
+                {escalationsBreakdown.blocks_by_reason.length === 0 ? (
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No guardrail blocks recorded yet.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {escalationsBreakdown.blocks_by_reason.map((b, i) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: 'rgba(245, 158, 11, 0.08)', borderRadius: '8px', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
+                        <span style={{ fontSize: '12px', fontFamily: 'var(--font-mono)' }}>{b.reason}</span>
+                        <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#f59e0b' }}>{b.count} blocks</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <h4 style={{ fontSize: '13px', color: '#f43f5e', marginBottom: '12px', fontWeight: '700' }}>
+                  🚨 Escalation Reasons
+                </h4>
+                {escalationsBreakdown.escalations_by_reason.length === 0 ? (
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No escalations recorded yet.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {escalationsBreakdown.escalations_by_reason.map((e, i) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: 'rgba(244, 63, 94, 0.08)', borderRadius: '8px', border: '1px solid rgba(244, 63, 94, 0.2)' }}>
+                        <span style={{ fontSize: '12px', fontFamily: 'var(--font-mono)' }}>{e.reason}</span>
+                        <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#f43f5e' }}>{e.count} cases</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Transactions Table */}
+          <div className="card">
+            <div className="card-header" style={{ flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <div className="card-title">Live Transaction Stream</div>
+                <div className="card-subtitle">Click any transaction to inspect its complete 8-layer audit trail</div>
+              </div>
+
+              <div className="filter-tabs">
+                {['ALL', 'RECOVERED', 'ESCALATED', 'DETECTED'].map(status => (
+                  <button 
+                    key={status}
+                    className={`tab-btn ${filterStatus === status ? 'active' : ''}`}
+                    onClick={() => setFilterStatus(status)}
+                  >
+                    {status}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="table-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Risk ID</th>
+                    <th>Root Cause</th>
+                    <th>Amount At Risk</th>
+                    <th>Priority</th>
+                    <th>Executions</th>
+                    <th>Status</th>
+                    <th>Recovered ₹</th>
+                    <th>Timestamp</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredTransactions.length === 0 ? (
+                    <tr>
+                      <td colSpan="8" style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>
+                        No transactions recorded. Click "Run Synthetic Batch" to start!
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredTransactions.map((tx) => (
+                      <tr 
+                        key={tx.risk_id} 
+                        className="clickable-row" 
+                        onClick={() => viewTransaction(tx.risk_id)}
+                      >
+                        <td style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: '#38bdf8' }}>
+                          {tx.risk_id}
+                        </td>
+                        <td>
+                          <span style={{ fontWeight: '600' }}>{tx.root_cause || 'unknown'}</span>
+                        </td>
+                        <td style={{ fontWeight: '700' }}>
+                          ₹{tx.amount.toLocaleString('en-IN')}
+                        </td>
+                        <td>
+                          <span className={`priority-badge priority-${tx.priority.toLowerCase()}`}>
+                            {tx.priority}
+                          </span>
+                        </td>
+                        <td>{tx.executions_count} steps</td>
+                        <td>
+                          <span className={`status-badge ${tx.status.toLowerCase().replace('_', '-')}`}>
+                            {tx.status}
+                          </span>
+                        </td>
+                        <td style={{ color: tx.amount_recovered > 0 ? '#10b981' : 'var(--text-muted)', fontWeight: '700' }}>
+                          {tx.amount_recovered > 0 ? `₹${tx.amount_recovered.toLocaleString('en-IN')}` : '₹0'}
+                        </td>
+                        <td style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                          {new Date(tx.created_at).toLocaleTimeString()}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Drill-down Modal */}
+          {selectedTx && (
+            <div className="modal-backdrop" onClick={() => setSelectedTx(null)}>
+              <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                <div className="modal-header">
+                  <div>
+                    <h2 style={{ fontSize: '18px', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span>Transaction Audit Journey:</span>
+                      <span style={{ color: '#38bdf8', fontFamily: 'var(--font-mono)' }}>{selectedTx.risk_id}</span>
+                    </h2>
+                    <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                      Amount: ₹{selectedTx.amount.toLocaleString('en-IN')} | Priority: {selectedTx.priority} | Final Status: {selectedTx.status}
+                    </p>
+                  </div>
+                  <button className="close-btn" onClick={() => setSelectedTx(null)}>✕</button>
+                </div>
+
+                <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Ordered State Transitions ({selectedTx.audit_trail.length} events logged)
+                </div>
+
+                <div className="timeline">
+                  {selectedTx.audit_trail.map((step, idx) => {
+                    const isPass = step.decision === 'guardrail_pass';
+                    const isBlock = step.decision === 'guardrail_block';
+                    const isRec = step.decision === 'revenue_recovered';
+
+                    return (
+                      <div key={step.id || idx} className="timeline-step">
+                        <div className={`timeline-dot ${isPass ? 'pass' : isBlock ? 'block' : isRec ? 'recovered' : ''}`}>
+                          {idx + 1}
+                        </div>
+                        <div className="step-card">
+                          <div className="step-header">
+                            <div>
+                              <span className="step-layer">{step.layer}</span>
+                              <div className="step-decision">{step.decision}</div>
+                            </div>
+                            <span className="step-time">{new Date(step.timestamp).toLocaleTimeString()}</span>
+                          </div>
+
+                          <div style={{ marginTop: '8px' }}>
+                            <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Input Payload:</div>
+                            <div className="json-box">{step.input_json}</div>
+                          </div>
+
+                          <div style={{ marginTop: '8px' }}>
+                            <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Output Decision:</div>
+                            <div className="json-box">{step.output_json}</div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
