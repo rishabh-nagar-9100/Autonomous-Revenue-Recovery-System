@@ -26,7 +26,7 @@ def get_anthropic_client(client: Optional[Any] = None) -> Optional[Any]:
     if client is not None:
         return client
     api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
+    if not api_key or not api_key.startswith("sk-ant-"):
         return None
     try:
         from anthropic import Anthropic

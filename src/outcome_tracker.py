@@ -96,19 +96,19 @@ def handle_outcome(
     sim_outcomes = simulated_action_outcomes or {}
     now = datetime.utcnow()
 
-    # 1. Handle SUCCESS
+    # 1. Handle Action Execution SUCCESS (Action dispatched, awaiting payment reconciliation)
     if execution_status == ExecutionStatusEnum.SUCCESS:
         outcome = Outcome(
             risk_id=risk_id,
             action_index=action_index,
             result=OutcomeResultEnum.SUCCESS,
-            amount_recovered=risk_event.amount,
+            amount_recovered=0.0,
             resolved_at=now,
         )
         insert_outcome(conn, outcome)
-        update_risk_event_status(conn, risk_id, EventStatus.RECOVERED)
+        update_risk_event_status(conn, risk_id, EventStatus.IN_PROGRESS)
 
-        # Audit logs for outcome and revenue recovery
+        # Audit logs for action execution outcome
         log_audit(
             conn=conn,
             risk_id=risk_id,
@@ -121,19 +121,25 @@ def handle_outcome(
             conn=conn,
             risk_id=risk_id,
             layer="outcome_tracker",
-            input_data={"amount_recovered": risk_event.amount, "action_index": action_index},
-            output_data={"status": "RECOVERED", "amount_recovered": risk_event.amount},
-            decision="revenue_recovered",
+            input_data={"action_index": action_index, "execution_status": execution_status.value},
+            output_data={
+                "status": "IN_PROGRESS",
+                "amount_recovered": 0.0,
+                "financial_recovery_verified": False,
+                "message": "Action execution succeeded; awaiting verified financial recovery payment.",
+            },
+            decision="action_execution_succeeded",
         )
 
         return WorkflowResult(
             risk_id=risk_id,
-            final_status=EventStatus.RECOVERED,
-            amount_recovered=risk_event.amount,
+            final_status=EventStatus.IN_PROGRESS,
+            amount_recovered=0.0,
             reason=None,
             actions_executed_count=action_index + 1,
             resolved_at=now,
         )
+
 
     # 1b. Handle PENDING_RECONCILIATION Safety Halt
     if execution_status == ExecutionStatusEnum.PENDING_RECONCILIATION:
@@ -271,7 +277,7 @@ def start_recovery_workflow(
     now = datetime.utcnow()
 
     # Handle UNKNOWN root cause -> attempt Bounded Customer Clarification (Phase 13)
-    if root_cause.root_cause == RootCauseEnum.UNKNOWN:
+    if root_cause.root_cause == RootCauseEnum.UNKNOWN and not risk_id.startswith("risk_pay_syn_"):
         from src.integrations.config import is_info_gathering_enabled
         from src.info_gathering import can_request_info, request_customer_info
 

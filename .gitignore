@@ -1,4 +1,4 @@
-# Virtual Environment
+# Virtual Environments
 .venv/
 venv/
 ENV/
@@ -10,12 +10,15 @@ __pycache__/
 *$py.class
 .pytest_cache/
 
-# Local Database Files
+# Local SQLite Database Files
 *.db
 *.sqlite3
 recovery.db
+rehearsal.db
+live_razorpay.db
+unattributed_webhooks.db
 
-# OS Files
+# OS & IDE Files
 .DS_Store
 .DS_Store?
 ._*
@@ -23,13 +26,18 @@ recovery.db
 .Trashes
 ehthumbs.db
 Thumbs.db
+.idea/
+.vscode/
 
 # Secrets & Environment Variables
 .env
 .env.*
+!.env.example
 *.pem
 *.key
 *.token
 
-# Logs & Temporary Files
+# Logs & Temporary Media/Scratch Folders
 *.log
+scratch/
+.tempmediaStorage/

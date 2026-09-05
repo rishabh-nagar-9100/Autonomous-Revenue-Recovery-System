@@ -167,8 +167,12 @@ class TestPhase11CriticalTraces:
 
         # Next action (payment_link) was automatically executed and succeeded!
         wf_res = recon_res["workflow_result"]
-        assert wf_res.final_status == EventStatus.RECOVERED
-        assert wf_res.amount_recovered == 4500.0
+        assert wf_res.final_status == EventStatus.IN_PROGRESS
+        assert wf_res.amount_recovered == 0.0
+
+        recon_final = reconcile_payment_status(memory_db, risk_id, forced_status="RECOVERED")
+        assert recon_final["status"] == "reconciled"
+        assert recon_final["amount_recovered"] == 4500.0
 
     def test_trace_c_triple_duplicate_delivery_idempotency(self, memory_db):
         """

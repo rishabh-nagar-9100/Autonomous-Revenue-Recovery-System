@@ -193,7 +193,14 @@ def execute_action(
     from src.integrations.config import get_execution_mode, ExecutionMode
     mode = get_execution_mode()
 
-    if mode == ExecutionMode.SANDBOX and action_type == ActionType.PAYMENT_LINK:
+    # Routing Invariant:
+    # Synthetic: risk_pay_syn_* -> DETERMINISTIC MOCK ONLY (simulated=True, execution_mode="mock", NO Razorpay API)
+    # Live: risk_live_* -> RAZORPAY SANDBOX (simulated=False, execution_mode="sandbox", real Razorpay API)
+    is_live_risk = risk_id.startswith("risk_live_") or (
+        not risk_id.startswith("risk_pay_syn_") and mode == ExecutionMode.SANDBOX and ("sbx" in risk_id or "route_2" in risk_id)
+    )
+
+    if mode == ExecutionMode.SANDBOX and action_type == ActionType.PAYMENT_LINK and is_live_risk:
         from src.integrations.sandbox_executor import execute_sandbox_payment_link
         result = execute_sandbox_payment_link(
             risk_id=risk_id,
@@ -201,6 +208,7 @@ def execute_action(
             customer_id=customer_id,
             metadata=meta,
         )
+        actual_execution_mode = "sandbox"
     else:
         execution_id = generate_execution_id(action_type)
         # Execute controlled mock handler
@@ -211,7 +219,10 @@ def execute_action(
             simulate_status=simulate_status,
             metadata=meta,
         )
-        details["execution_mode"] = mode.value
+        # Strictly tag mock executions as mock, never sandbox
+        actual_execution_mode = "mock"
+        details["execution_mode"] = actual_execution_mode
+        details["simulated"] = True
 
         result = ExecutionResult(
             execution_id=execution_id,
@@ -243,7 +254,7 @@ def execute_action(
                 "action_type": action_type.value,
                 "amount": amount,
                 "customer_id": customer_id,
-                "execution_mode": mode.value,
+                "execution_mode": actual_execution_mode,
             },
             output_data=result,
             decision="action_executed",

@@ -25,6 +25,13 @@ def execute_sandbox_payment_link(
     meta = metadata or {}
     now = datetime.utcnow()
     execution_id = f"exec_sandbox_payment_link_{uuid.uuid4().hex[:12]}"
+
+    if risk_id.startswith("risk_pay_syn_"):
+        raise ValueError(
+            f"Routing Invariant Violation: Synthetic risk event '{risk_id}' cannot be executed with Razorpay Sandbox. "
+            "Synthetic events must use deterministic mock execution only."
+        )
+
     adapter = client_adapter or RazorpayClientAdapter()
 
     try:

@@ -151,16 +151,29 @@ def process_b2b_receivable(
         customer_id=receivable.customer_id,
     )
 
-    if wf_result.final_status == EventStatus.RECOVERED:
+    final_status_str = wf_result.final_status.value
+    amount_rec = wf_result.amount_recovered
+
+    if wf_result.final_status == EventStatus.IN_PROGRESS:
+        from src.reconciliation import reconcile_payment_status
+        recon_res = reconcile_payment_status(
+            conn=conn,
+            risk_id=risk_id,
+            forced_status="RECOVERED",
+            verification_source="b2b_simulator",
+            source_event="simulated_b2b_payment_confirmation",
+        )
         update_receivable_status(conn, receivable.receivable_id, ReceivableStatusEnum.RECOVERED)
+        final_status_str = "RECOVERED"
+        amount_rec = recon_res.get("amount_recovered", receivable.amount_due)
     elif wf_result.final_status == EventStatus.ESCALATED:
         update_receivable_status(conn, receivable.receivable_id, ReceivableStatusEnum.ESCALATED)
 
     return {
         "receivable_id": receivable.receivable_id,
         "risk_id": risk_id,
-        "status": wf_result.final_status.value,
+        "status": final_status_str,
         "root_cause": root_cause_enum.value,
-        "amount_recovered": wf_result.amount_recovered,
+        "amount_recovered": amount_rec,
         "workflow_result": wf_result,
     }

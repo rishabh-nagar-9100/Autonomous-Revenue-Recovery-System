@@ -279,5 +279,10 @@ class TestPhase8EndToEndScenarios:
             customer_id="cust_p8_01",
         )
 
-        assert wf_res.final_status == EventStatus.RECOVERED
-        assert wf_res.amount_recovered == 16000.0
+        assert wf_res.final_status == EventStatus.IN_PROGRESS
+        assert wf_res.amount_recovered == 0.0
+
+        from src.reconciliation import reconcile_payment_status
+        recon = reconcile_payment_status(in_memory_db, risk_ev.risk_id, forced_status="RECOVERED")
+        assert recon["status"] == "reconciled"
+        assert recon["amount_recovered"] == 16000.0

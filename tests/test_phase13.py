@@ -238,7 +238,10 @@ class TestPhase13CriticalTraces:
         rc = get_root_cause(memory_db, risk_id)
         assert rc.root_cause == RootCauseEnum.EXPIRED_CARD
 
-        # 4. Verify risk event status is RECOVERED and outcome recorded
+        # 4. Verify risk event status is IN_PROGRESS after action execution success, then RECOVERED upon reconciliation
+        assert get_risk_event(memory_db, risk_id).status == EventStatus.IN_PROGRESS
+        from src.reconciliation import reconcile_payment_status
+        reconcile_payment_status(memory_db, risk_id, forced_status="RECOVERED")
         assert get_risk_event(memory_db, risk_id).status == EventStatus.RECOVERED
         outcomes = get_outcomes_for_risk(memory_db, risk_id)
         assert len(outcomes) == 1

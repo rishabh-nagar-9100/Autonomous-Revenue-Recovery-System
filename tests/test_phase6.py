@@ -126,7 +126,10 @@ class TestAuditTrail:
             },
             customer_id="cust_audit_rec",
         )
-        assert res.final_status == EventStatus.RECOVERED
+        assert res.final_status == EventStatus.IN_PROGRESS
+
+        from src.reconciliation import reconcile_payment_status
+        reconcile_payment_status(in_memory_db, risk_id, forced_status="RECOVERED")
 
         # 3. Query complete audit history
         audit_trail = get_audit_trail(in_memory_db, risk_id)
@@ -145,7 +148,8 @@ class TestAuditTrail:
             "guardrail_pass",
             "action_executed",
             "outcome_recorded",
-            "revenue_recovered",
+            "action_execution_succeeded",
+            "payment_status_reconciled_recovered",
         ]
 
         assert decisions == expected_decisions
@@ -162,6 +166,7 @@ class TestAuditTrail:
             "action_executor",
             "outcome_tracker",
             "outcome_tracker",
+            "reconciliation_engine",
         ]
 
         # Verify all audit entries have valid timestamps, non-empty JSON inputs and outputs
@@ -273,9 +278,12 @@ class TestAuditTrail:
             customer_id="cust_p6_done",
         )
 
+        from src.reconciliation import reconcile_payment_status
+        reconcile_payment_status(in_memory_db, risk_id, forced_status="RECOVERED")
+
         rows = get_audit_trail_for_risk(in_memory_db, risk_id)
         assert len(rows) >= 7
         # Verify strict ascending ordering of ID
         ids = [r.id for r in rows]
         assert ids == sorted(ids)
-        assert rows[-1].decision == "revenue_recovered"
+        assert rows[-1].decision == "payment_status_reconciled_recovered"

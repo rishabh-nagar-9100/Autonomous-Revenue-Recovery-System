@@ -9,6 +9,97 @@ from src.integrations.config import RAZORPAY_WEBHOOK_SECRET
 from src.audit import log_audit
 
 
+from src.integrations.config import get_razorpay_webhook_secret
+
+
+def _safe_dict(obj: Any, key: str) -> Dict[str, Any]:
+    """Safely extracts a nested dictionary from parent obj under key without throwing AttributeError."""
+    if isinstance(obj, dict):
+        val = obj.get(key)
+        if isinstance(val, dict):
+            return val
+    return {}
+
+
+def extract_reference_id(payload: Any) -> Optional[str]:
+    """
+    Pure, read-only, fail-safe provenance extractor for Razorpay webhook payloads.
+    Safely inspects payment.entity.notes, order.entity.notes, order.entity.receipt,
+    and payment_link.entity.reference_id / notes.
+    
+    Robustness guarantees:
+    - Never raises an exception if 'notes' is dict, list, None, or any unexpected type.
+    - If notes is a dict: reads reference_id / risk_id safely.
+    - If notes is a list or None: treats as missing/unavailable metadata without calling .get().
+    - Returns a validated non-empty risk ID string or None.
+    """
+    if not isinstance(payload, dict):
+        return None
+
+    def _is_valid_risk_id(val: Any) -> bool:
+        if isinstance(val, str):
+            cleaned = val.strip()
+            if cleaned.startswith("risk_"):
+                return True
+        return False
+
+    def _extract_from_notes(entity: Any) -> Optional[str]:
+        if not isinstance(entity, dict):
+            return None
+        notes = entity.get("notes")
+        if isinstance(notes, dict):
+            for k in ("reference_id", "risk_id"):
+                v = notes.get(k)
+                if _is_valid_risk_id(v):
+                    return str(v).strip()
+        return None
+
+    payload_data = _safe_dict(payload, "payload")
+    payment_entity = _safe_dict(_safe_dict(payload_data, "payment"), "entity")
+    order_entity = _safe_dict(_safe_dict(payload_data, "order"), "entity")
+    payment_link_entity = _safe_dict(_safe_dict(payload_data, "payment_link"), "entity")
+
+    # 1. Payment notes
+    ref = _extract_from_notes(payment_entity)
+    if ref:
+        return ref
+
+    # 2. Order notes
+    ref = _extract_from_notes(order_entity)
+    if ref:
+        return ref
+
+    # 3. Order receipt
+    if isinstance(order_entity, dict):
+        rcpt = order_entity.get("receipt")
+        if _is_valid_risk_id(rcpt):
+            return str(rcpt).strip()
+
+    # 4. Payment Link reference_id
+    if isinstance(payment_link_entity, dict):
+        plink_ref = payment_link_entity.get("reference_id")
+        if _is_valid_risk_id(plink_ref):
+            return str(plink_ref).strip()
+
+    # 5. Payment Link notes
+    ref = _extract_from_notes(payment_link_entity)
+    if ref:
+        return ref
+
+    # 6. Fallback: top-level payload notes if flattened
+    ref = _extract_from_notes(payload)
+    if ref:
+        return ref
+
+    # 7. Fallback: top-level reference_id / risk_id / receipt on payload
+    for k in ("reference_id", "risk_id", "receipt"):
+        v = payload.get(k)
+        if _is_valid_risk_id(v):
+            return str(v).strip()
+
+    return None
+
+
 def verify_webhook_signature(
     raw_body: str,
     signature: str,
@@ -17,7 +108,8 @@ def verify_webhook_signature(
     """
     Verifies Razorpay webhook signature using HMAC-SHA256 HMAC digest comparison.
     """
-    adapter = RazorpayClientAdapter(webhook_secret=secret or RAZORPAY_WEBHOOK_SECRET)
+    sec = secret or get_razorpay_webhook_secret()
+    adapter = RazorpayClientAdapter(webhook_secret=sec)
     return adapter.verify_webhook_signature(raw_body, signature)
 
 
@@ -144,47 +236,132 @@ def process_webhook(
         risk_id_target = None
 
         # Reconcile or process payment status
-        if "payload" in payload and "payment" in payload["payload"]:
-            payment_entity = payload["payload"]["payment"].get("entity", {})
-            risk_id_target = payment_entity.get("notes", {}).get("reference_id") or payment_entity.get("id")
+        payload_data = _safe_dict(payload, "payload")
+        payment_entity = _safe_dict(_safe_dict(payload_data, "payment"), "entity")
+        order_entity = _safe_dict(_safe_dict(payload_data, "order"), "entity")
+        payment_link_entity = _safe_dict(_safe_dict(payload_data, "payment_link"), "entity")
 
-            if event_name in {"payment.captured", "payment_link.paid"}:
-                from src.reconciliation import reconcile_payment_status
-                if risk_id_target:
-                    reconcile_payment_status(
-                        conn,
-                        risk_id_target,
-                        forced_status="RECOVERED",
-                        amount=float(payment_entity.get("amount", 0)) / 100.0 if payment_entity.get("amount") else 0.0,
-                    )
-            elif event_name == "payment.authorized":
-                from src.reconciliation import reconcile_payment_status
-                if risk_id_target:
-                    reconcile_payment_status(
-                        conn,
-                        risk_id_target,
-                        forced_status="AUTHORIZED",
-                        amount=float(payment_entity.get("amount", 0)) / 100.0 if payment_entity.get("amount") else 0.0,
-                    )
-            elif event_name == "payment.failed":
-                from src.reconciliation import reconcile_payment_status
-                if risk_id_target:
-                    reconcile_payment_status(
-                        conn,
-                        risk_id_target,
-                        forced_status="FAILED",
-                    )
+        candidate = extract_reference_id(payload)
+        risk_id_target = candidate
+        cursor = conn.cursor()
+        found_in_db = False
+        if risk_id_target:
+            cursor.execute("SELECT 1 FROM risk_events WHERE risk_id = ?;", (risk_id_target,))
+            if cursor.fetchone():
+                found_in_db = True
+
+        if not found_in_db and not risk_id_target:
+            plink_id = payment_link_entity.get("id") if isinstance(payment_link_entity, dict) else None
+            desc = payment_entity.get("description") if isinstance(payment_entity, dict) else None
+            desc_token = desc.lstrip("#") if (isinstance(desc, str) and desc.startswith("#")) else (desc if isinstance(desc, str) else "")
+
+            target_tokens = [t for t in [plink_id, desc_token] if t]
+            for token in target_tokens:
+                cursor.execute(
+                    "SELECT risk_id FROM audit_log WHERE layer = 'action_executor' AND output_json LIKE ? ORDER BY id DESC LIMIT 1;",
+                    (f"%{token}%",)
+                )
+                match_row = cursor.fetchone()
+                if match_row:
+                    risk_id_target = match_row["risk_id"] if hasattr(match_row, "keys") and "risk_id" in match_row.keys() else match_row[0]
+                    found_in_db = True
+                    break
+
+        amount_val = 0.0
+        if isinstance(payment_entity, dict) and payment_entity.get("amount"):
+            amount_val = float(payment_entity["amount"]) / 100.0
+        elif isinstance(order_entity, dict) and order_entity.get("amount_paid"):
+            amount_val = float(order_entity["amount_paid"]) / 100.0
+        elif isinstance(order_entity, dict) and order_entity.get("amount"):
+            amount_val = float(order_entity["amount"]) / 100.0
+
+        # 1. Log verified webhook receipt BEFORE subordinate reconciliation transitions
+        audit_webhook_receipt = {
+            "event_id": event_id,
+            "event_name": event_name,
+            "verification_source": "razorpay_webhook",
+            "amount": amount_val,
+        }
+        payment_id = payment_entity.get("id") if isinstance(payment_entity, dict) else None
+        order_id = order_entity.get("id") if isinstance(order_entity, dict) else None
+        if payment_id:
+            audit_webhook_receipt["razorpay_payment_id"] = payment_id
+        if order_id:
+            audit_webhook_receipt["order_id"] = order_id
+
+        provenance_category = (
+            "unattributed"
+            if not risk_id_target
+            else ("live" if risk_id_target.startswith("risk_live_") else "synthetic")
+        )
+
+        log_audit(
+            conn=conn,
+            risk_id=risk_id_target or "unattributed_webhook",
+            layer="webhook_processor",
+            input_data=audit_webhook_receipt,
+            output_data={
+                "status": "signature_verified",
+                "risk_id": risk_id_target,
+                "event_type": event_name,
+                "provenance": provenance_category,
+            },
+            decision="webhook_received" if risk_id_target else "unattributed_webhook_quarantined",
+        )
+
+        if event_name in {"payment.captured", "payment_link.paid", "order.paid"}:
+            from src.reconciliation import reconcile_payment_status
+            if risk_id_target:
+                reconcile_payment_status(
+                    conn,
+                    risk_id_target,
+                    forced_status="RECOVERED",
+                    amount=amount_val,
+                    source_event=event_name,
+                    razorpay_payment_id=payment_id,
+                    webhook_event_id=event_id,
+                    verification_source="razorpay_webhook",
+                )
+        elif event_name == "payment.authorized":
+            from src.reconciliation import reconcile_payment_status
+            if risk_id_target:
+                reconcile_payment_status(
+                    conn,
+                    risk_id_target,
+                    forced_status="AUTHORIZED",
+                    amount=amount_val,
+                    source_event=event_name,
+                    razorpay_payment_id=payment_id,
+                    webhook_event_id=event_id,
+                    verification_source="razorpay_webhook",
+                )
+        elif event_name == "payment.failed":
+            from src.reconciliation import reconcile_payment_status
+            if risk_id_target:
+                reconcile_payment_status(
+                    conn,
+                    risk_id_target,
+                    forced_status="FAILED",
+                    source_event=event_name,
+                    razorpay_payment_id=payment_id,
+                    webhook_event_id=event_id,
+                    verification_source="razorpay_webhook",
+                )
 
         # Transition to PROCESSED state
         update_webhook_status(conn, event_id, status=WebhookProcessingStatus.PROCESSED)
 
         log_audit(
             conn=conn,
-            risk_id=risk_id_target or "system_webhook",
+            risk_id=risk_id_target or "unattributed_webhook",
             layer="webhook_processor",
-            input_data={"event_id": event_id, "event_name": event_name},
-            output_data={"status": "processed"},
-            decision="webhook_processed_successfully",
+            input_data={
+                "event_id": event_id,
+                "event_name": event_name,
+                "razorpay_payment_id": payment_id,
+            },
+            output_data={"status": "processed", "provenance": provenance_category},
+            decision="webhook_processed_successfully" if risk_id_target else "unattributed_webhook_quarantined",
         )
 
         return {

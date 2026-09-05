@@ -8,6 +8,22 @@ class ExecutionMode(str, Enum):
     SANDBOX = "sandbox"
 
 
+# Load .env file from project root if present
+_env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), ".env")
+if os.path.exists(_env_path):
+    try:
+        with open(_env_path, "r", encoding="utf-8") as _f:
+            for _line in _f:
+                _line = _line.strip()
+                if _line and not _line.startswith("#") and "=" in _line:
+                    _k, _v = _line.split("=", 1)
+                    _k, _v = _k.strip(), _v.strip().strip("'\"")
+                    if _k and _k not in os.environ:
+                        os.environ[_k] = _v
+    except Exception:
+        pass
+
+
 def get_env_bool(var_name: str, default: bool = False) -> bool:
     """Helper to parse boolean values from environment variables."""
     val = os.getenv(var_name, "").strip().lower()
@@ -26,10 +42,19 @@ def get_execution_mode() -> ExecutionMode:
     return ExecutionMode.MOCK
 
 
-# Razorpay API Credentials
-RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "rzp_test_dummy_key_id")
-RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "dummy_secret_key")
-RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET", "dummy_webhook_secret")
+# Razorpay API Credentials (read dynamically with fallback to env/defaults)
+def get_razorpay_key_id() -> str:
+    return os.getenv("RAZORPAY_KEY_ID", "rzp_test_dummy_key_id")
+
+def get_razorpay_key_secret() -> str:
+    return os.getenv("RAZORPAY_KEY_SECRET", "dummy_secret_key")
+
+def get_razorpay_webhook_secret() -> str:
+    return os.getenv("RAZORPAY_WEBHOOK_SECRET", "dummy_webhook_secret")
+
+RAZORPAY_KEY_ID = get_razorpay_key_id()
+RAZORPAY_KEY_SECRET = get_razorpay_key_secret()
+RAZORPAY_WEBHOOK_SECRET = get_razorpay_webhook_secret()
 
 # Post-MVP Feature Flags (Default to safe mock/false values)
 B2B_ENABLED = get_env_bool("B2B_ENABLED", False)
@@ -63,12 +88,12 @@ def get_feature_flags_status() -> Dict[str, Any]:
     """Returns a dictionary summary of all active feature flags and execution config."""
     return {
         "execution_mode": get_execution_mode().value,
-        "b2b_enabled": B2B_ENABLED,
-        "info_gathering_enabled": INFO_GATHERING_ENABLED,
-        "voice_enabled": VOICE_ENABLED,
-        "fault_injection_enabled": FAULT_INJECTION_ENABLED,
-        "demo_fallback_to_mock": DEMO_FALLBACK_TO_MOCK,
-        "info_recovery_window_days": INFO_RECOVERY_WINDOW_DAYS,
-        "max_reconciliation_attempts": MAX_RECONCILIATION_ATTEMPTS,
-        "max_reconciliation_hours": MAX_RECONCILIATION_HOURS,
+        "b2b_enabled": is_b2b_enabled(),
+        "info_gathering_enabled": is_info_gathering_enabled(),
+        "voice_enabled": is_voice_enabled(),
+        "fault_injection_enabled": get_env_bool("FAULT_INJECTION_ENABLED", False),
+        "demo_fallback_to_mock": get_env_bool("DEMO_FALLBACK_TO_MOCK", False),
+        "info_recovery_window_days": int(os.getenv("INFO_RECOVERY_WINDOW_DAYS", "7")),
+        "max_reconciliation_attempts": int(os.getenv("MAX_RECONCILIATION_ATTEMPTS", "3")),
+        "max_reconciliation_hours": int(os.getenv("MAX_RECONCILIATION_HOURS", "24")),
     }

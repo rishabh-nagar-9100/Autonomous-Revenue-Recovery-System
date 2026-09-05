@@ -19,10 +19,12 @@ from src.metrics import (
 )
 from src.batch_runner import run_synthetic_batch, generate_synthetic_batch
 from src.integrations.config import get_feature_flags_status
-from src.webhook import process_webhook
+from src.webhook import process_webhook, extract_reference_id
 
 
 DB_PATH = "recovery.db"
+LIVE_DB_PATH = "live_razorpay.db"
+UNATTRIBUTED_DB_PATH = "unattributed_webhooks.db"
 
 # Batch execution state
 batch_state: Dict[str, Any] = {
@@ -35,17 +37,33 @@ batch_state: Dict[str, Any] = {
 batch_lock = threading.Lock()
 
 
-def get_connection() -> sqlite3.Connection:
-    conn = get_db_connection(DB_PATH)
+def get_connection(view: str = "demo") -> sqlite3.Connection:
+    if view == "live":
+        target_path = LIVE_DB_PATH
+    elif view in {"unattributed", "quarantine"}:
+        target_path = UNATTRIBUTED_DB_PATH
+    else:
+        target_path = DB_PATH
+    conn = get_db_connection(target_path)
     init_db(conn)
     return conn
 
 
-def _run_batch_worker(batch_size: int = 65, delay_s: float = 0.05):
+def _run_batch_worker(batch_size: int = 65, delay_s: float = 0.01):
     global batch_state
     try:
-        conn = get_connection()
-        batch = generate_synthetic_batch(batch_size)
+        conn = get_connection(view="demo")
+        with conn:
+            conn.execute("DELETE FROM audit_log WHERE risk_id LIKE 'risk_pay_syn_%';")
+            conn.execute("DELETE FROM outcomes WHERE risk_id LIKE 'risk_pay_syn_%';")
+            conn.execute("DELETE FROM escalations WHERE risk_id LIKE 'risk_pay_syn_%';")
+            conn.execute("DELETE FROM executions WHERE risk_id LIKE 'risk_pay_syn_%';")
+            conn.execute("DELETE FROM guardrail_checks WHERE risk_id LIKE 'risk_pay_syn_%';")
+            conn.execute("DELETE FROM interventions WHERE risk_id LIKE 'risk_pay_syn_%';")
+            conn.execute("DELETE FROM root_causes WHERE risk_id LIKE 'risk_pay_syn_%';")
+            conn.execute("DELETE FROM risk_events WHERE risk_id LIKE 'risk_pay_syn_%';")
+
+        batch = generate_synthetic_batch(size=batch_size, seed=42)
         with batch_lock:
             batch_state["is_running"] = True
             batch_state["total"] = len(batch)
@@ -72,10 +90,26 @@ def _run_batch_worker(batch_size: int = 65, delay_s: float = 0.05):
             batch_state["last_run_time"] = None
 
 
+def _background_live_poller_worker():
+    """Background worker daemon that polls Razorpay API for live payment completion every 10 seconds."""
+    import time
+    while True:
+        try:
+            time.sleep(10)
+            live_conn = get_connection(view="live")
+            from src.reconciliation import poll_live_razorpay_payments
+            poll_live_razorpay_payments(live_conn)
+            live_conn.close()
+        except Exception:
+            pass
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     conn = get_connection()
     conn.close()
+    poller_thread = threading.Thread(target=_background_live_poller_worker, daemon=True)
+    poller_thread.start()
     yield
 
 
@@ -101,15 +135,32 @@ async def api_razorpay_webhook(request: Request):
     """
     Razorpay Webhook endpoint with HMAC signature verification,
     event deduplication, and lifecycle tracking.
+    Routes strictly by provenance:
+    - risk_live_* events route ONLY to live_razorpay.db
+    - synthetic / non-live events route ONLY to recovery.db
     """
+    import json
     raw_body_bytes = await request.body()
     raw_body = raw_body_bytes.decode("utf-8")
     headers = dict(request.headers)
 
-    conn = get_connection()
+    candidate_risk_id = None
+    try:
+        payload = json.loads(raw_body)
+        candidate_risk_id = extract_reference_id(payload)
+    except Exception:
+        candidate_risk_id = None
+
+    if candidate_risk_id and candidate_risk_id.startswith("risk_live_"):
+        target_view = "live"
+    elif candidate_risk_id:
+        target_view = "demo"
+    else:
+        target_view = "unattributed"
+
+    conn = get_connection(view=target_view)
     try:
         res = process_webhook(conn, raw_body=raw_body, headers=headers)
-        return res
     except ValueError as val_err:
         raise HTTPException(status_code=400, detail=str(val_err))
     except Exception as exc:
@@ -117,10 +168,12 @@ async def api_razorpay_webhook(request: Request):
     finally:
         conn.close()
 
+    return res
+
 
 @app.get("/api/metrics")
-def api_metrics():
-    conn = get_connection()
+def api_metrics(view: str = "demo"):
+    conn = get_connection(view=view)
     try:
         metrics = get_summary_metrics(conn)
         return metrics
@@ -129,8 +182,8 @@ def api_metrics():
 
 
 @app.get("/api/breakdown/root-cause")
-def api_root_cause_breakdown():
-    conn = get_connection()
+def api_root_cause_breakdown(view: str = "demo"):
+    conn = get_connection(view=view)
     try:
         return get_root_cause_breakdown(conn)
     finally:
@@ -138,8 +191,8 @@ def api_root_cause_breakdown():
 
 
 @app.get("/api/breakdown/actions")
-def api_actions_breakdown():
-    conn = get_connection()
+def api_actions_breakdown(view: str = "demo"):
+    conn = get_connection(view=view)
     try:
         return get_action_performance_breakdown(conn)
     finally:
@@ -147,8 +200,8 @@ def api_actions_breakdown():
 
 
 @app.get("/api/breakdown/escalations")
-def api_escalations_breakdown():
-    conn = get_connection()
+def api_escalations_breakdown(view: str = "demo"):
+    conn = get_connection(view=view)
     try:
         return get_escalation_and_block_summary(conn)
     finally:
@@ -156,8 +209,8 @@ def api_escalations_breakdown():
 
 
 @app.get("/api/transactions")
-def api_transactions(limit: int = 200):
-    conn = get_connection()
+def api_transactions(limit: int = 200, view: str = "demo"):
+    conn = get_connection(view=view)
     try:
         return get_transactions_list(conn, limit=limit)
     finally:
@@ -166,14 +219,22 @@ def api_transactions(limit: int = 200):
 
 @app.get("/api/transactions/{risk_id}")
 def api_transaction_detail(risk_id: str):
-    conn = get_connection()
+    conn = get_connection(view="demo")
     try:
         detail = get_transaction_detail(conn, risk_id)
-        if not detail:
-            raise HTTPException(status_code=404, detail="Transaction not found")
-        return detail
     finally:
         conn.close()
+
+    if not detail and os.path.exists(LIVE_DB_PATH):
+        conn_live = get_connection(view="live")
+        try:
+            detail = get_transaction_detail(conn_live, risk_id)
+        finally:
+            conn_live.close()
+
+    if not detail:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    return detail
 
 
 @app.post("/api/batch/run")
@@ -183,7 +244,22 @@ def api_run_batch(background_tasks: BackgroundTasks, size: int = 65, speed: str 
         if batch_state["is_running"]:
             return {"status": "already_running", "processed": batch_state["processed"], "total": batch_state["total"]}
 
-    delay = 0.05 if speed == "normal" else 0.0
+    conn = get_connection(view="demo")
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM risk_events WHERE risk_id LIKE 'risk_pay_syn_%';")
+        existing_count = cursor.fetchone()[0]
+        if existing_count >= size:
+            return {
+                "status": "already_loaded",
+                "message": f"Synthetic batch ({size} events) is already loaded and completed.",
+                "processed": existing_count,
+                "total": existing_count,
+            }
+    finally:
+        conn.close()
+
+    delay = 0.01 if speed == "normal" else 0.0
     background_tasks.add_task(_run_batch_worker, batch_size=size, delay_s=delay)
     return {"status": "started", "size": size}
 
@@ -359,7 +435,7 @@ def api_get_voice_interactions(risk_id: str):
 
 @app.post("/api/batch/reset")
 def api_reset_db():
-    conn = get_connection()
+    conn = get_connection(view="demo")
     try:
         with conn:
             conn.execute("DELETE FROM audit_log;")
@@ -374,6 +450,11 @@ def api_reset_db():
             conn.execute("DELETE FROM receivables;")
             conn.execute("DELETE FROM info_requests;")
             conn.execute("DELETE FROM voice_interactions;")
+        with batch_lock:
+            batch_state["is_running"] = False
+            batch_state["processed"] = 0
+            batch_state["total"] = 0
+            batch_state["error"] = None
         return {"status": "reset_successful"}
     finally:
         conn.close()

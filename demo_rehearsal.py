@@ -1,3 +1,5 @@
+import os
+os.environ["EXECUTION_MODE"] = "mock"
 import sqlite3
 import json
 from src.db import init_db
@@ -25,7 +27,7 @@ def reset_database(conn: sqlite3.Connection):
         conn.execute("DELETE FROM risk_events;")
 
 
-def run_rehearsal_pass(pass_number: int, db_path: str = "recovery.db"):
+def run_rehearsal_pass(pass_number: int, db_path: str = "rehearsal.db"):
     print("\n" + "=" * 90)
     print(f"STARTING DEMO REHEARSAL PASS #{pass_number} (FROM CLEAN STATE)")
     print("=" * 90)

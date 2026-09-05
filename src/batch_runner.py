@@ -8,6 +8,7 @@ from typing import List, Dict, Any, Optional, Callable
 from src.models import (
     ExecutionStatusEnum,
     RootCauseEnum,
+    EventStatus,
 )
 from src.pipeline import process_payment_failed_event
 from src.guardrails import GuardrailContext
@@ -152,9 +153,15 @@ def generate_synthetic_batch(size: int = 65, seed: int = 42) -> List[Dict[str, A
                 error_reason = "unknown"
                 error_desc = "Unknown error"
 
+            if ctx_info.get("is_night"):
+                sim_dt = datetime(2026, 8, 27, 23, 15, 0)
+            else:
+                sim_dt = datetime(2026, 8, 27, 14, 0, 0)
+
             payload = {
                 "entity": "event",
                 "event": "payment.failed",
+                "timestamp": sim_dt.isoformat(),
                 "payload": {
                     "payment": {
                         "entity": {
@@ -165,6 +172,7 @@ def generate_synthetic_batch(size: int = 65, seed: int = 42) -> List[Dict[str, A
                             "error_code": error_code,
                             "error_reason": error_reason,
                             "error_description": error_desc,
+                            "created_at": int(sim_dt.timestamp()),
                         }
                     }
                 },
@@ -218,7 +226,7 @@ def run_synthetic_batch(
             llm_client=llm_client,
         )
 
-        # 2. Outcome Tracker Recovery Loop
+        # 2. Outcome Tracker Recovery Loop (Dispatches action; sets status IN_PROGRESS if action execution succeeds)
         wf_res = start_recovery_workflow(
             conn=conn,
             risk_id=risk_ev.risk_id,
@@ -227,14 +235,31 @@ def run_synthetic_batch(
             customer_id=norm_ev.customer_id,
         )
 
+        final_status = wf_res.final_status.value
+        amount_recovered = wf_res.amount_recovered
+
+        # 3. For synthetic batch simulations where action execution succeeded (status IN_PROGRESS),
+        # simulate customer payment completion via reconciliation engine
+        if wf_res.final_status == EventStatus.IN_PROGRESS:
+            from src.reconciliation import reconcile_payment_status
+            recon_res = reconcile_payment_status(
+                conn=conn,
+                risk_id=risk_ev.risk_id,
+                forced_status="RECOVERED",
+                verification_source="synthetic_simulator",
+                source_event="simulated_payment_confirmation",
+            )
+            final_status = EventStatus.RECOVERED.value
+            amount_recovered = recon_res.get("amount_recovered", risk_ev.amount)
+
         event_summary = {
             "risk_id": risk_ev.risk_id,
             "event_id": norm_ev.event_id,
             "amount": risk_ev.amount,
             "root_cause": root_cause.root_cause.value,
             "source": root_cause.source,
-            "status": wf_res.final_status.value,
-            "amount_recovered": wf_res.amount_recovered,
+            "status": final_status,
+            "amount_recovered": amount_recovered,
             "reason": wf_res.reason,
         }
         results.append(event_summary)

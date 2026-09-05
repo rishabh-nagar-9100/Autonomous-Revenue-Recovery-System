@@ -239,6 +239,9 @@ class TestPhase14VoiceRecovery:
         execs = get_executions_for_risk(memory_db, risk_id)
         assert len(execs) == 1
         assert execs[0].action_type == ActionType.PAYMENT_LINK
+        assert get_risk_event(memory_db, risk_id).status == EventStatus.IN_PROGRESS
+        from src.reconciliation import reconcile_payment_status
+        reconcile_payment_status(memory_db, risk_id, forced_status="RECOVERED")
         assert get_risk_event(memory_db, risk_id).status == EventStatus.RECOVERED
 
     def test_guardrail_block_voice_action_not_executed(self, memory_db, daytime_context):
@@ -318,6 +321,9 @@ class TestPhase14CriticalTraces:
         assert res["execution_result"] == "SUCCESS"
 
         # Database verification
+        assert get_risk_event(memory_db, risk_id).status == EventStatus.IN_PROGRESS
+        from src.reconciliation import reconcile_payment_status
+        reconcile_payment_status(memory_db, risk_id, forced_status="RECOVERED")
         assert get_risk_event(memory_db, risk_id).status == EventStatus.RECOVERED
         outcomes = get_outcomes_for_risk(memory_db, risk_id)
         assert outcomes[0].amount_recovered == 6200.0

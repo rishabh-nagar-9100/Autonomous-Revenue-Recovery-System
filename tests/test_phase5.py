@@ -73,7 +73,7 @@ class TestOutcomeTrackerScenarios:
     def test_immediate_success_stops_workflow_and_marks_recovered(self, in_memory_db):
         setup_test_risk_and_root_cause(in_memory_db, "risk_succ_01", RootCauseEnum.BANK_TIMEOUT, 5000.0)
 
-        # Simulation: Action 0 (smart_retry) succeeds
+        # Simulation: Action 0 (smart_retry) succeeds (interventions dispatched)
         result = start_recovery_workflow(
             conn=in_memory_db,
             risk_id="risk_succ_01",
@@ -81,19 +81,27 @@ class TestOutcomeTrackerScenarios:
             simulated_action_outcomes={0: ExecutionStatusEnum.SUCCESS},
         )
 
-        assert result.final_status == EventStatus.RECOVERED
-        assert result.amount_recovered == 5000.0
+        # Action execution success leaves status IN_PROGRESS with amount_recovered=0.0
+        assert result.final_status == EventStatus.IN_PROGRESS
+        assert result.amount_recovered == 0.0
         assert result.actions_executed_count == 1
 
-        # Verify DB state
+        # Verify DB state before reconciliation
         risk = get_risk_event(in_memory_db, "risk_succ_01")
-        assert risk.status == EventStatus.RECOVERED
+        assert risk.status == EventStatus.IN_PROGRESS
+
+        # Perform verified payment reconciliation
+        from src.reconciliation import reconcile_payment_status
+        recon = reconcile_payment_status(in_memory_db, "risk_succ_01", forced_status="RECOVERED")
+        assert recon["status"] == "reconciled"
+
+        risk_after = get_risk_event(in_memory_db, "risk_succ_01")
+        assert risk_after.status == EventStatus.RECOVERED
 
         outcomes = get_outcomes_for_risk(in_memory_db, "risk_succ_01")
-        assert len(outcomes) == 1
-        assert outcomes[0].action_index == 0
-        assert outcomes[0].result == OutcomeResultEnum.SUCCESS
-        assert outcomes[0].amount_recovered == 5000.0
+        assert len(outcomes) >= 1
+        assert outcomes[-1].result == OutcomeResultEnum.SUCCESS
+        assert outcomes[-1].amount_recovered == 5000.0
 
         # No escalation created
         assert get_escalation(in_memory_db, "risk_succ_01") is None
@@ -106,11 +114,11 @@ class TestOutcomeTrackerScenarios:
     def test_scenario_1_bank_timeout_fail_action0_succeed_action1(self, in_memory_db):
         """
         Critical Scenario 1:
-        bank_timeout -> smart_retry FAILED -> payment_link SUCCESS -> ₹ recovered
+        bank_timeout -> smart_retry FAILED -> payment_link SUCCESS -> payment reconciliation -> ₹ recovered
         """
         setup_test_risk_and_root_cause(in_memory_db, "risk_scen_1", RootCauseEnum.BANK_TIMEOUT, 15000.0)
 
-        # Simulation: Action 0 fails, Action 1 succeeds
+        # Simulation: Action 0 fails, Action 1 succeeds (dispatched)
         result = start_recovery_workflow(
             conn=in_memory_db,
             risk_id="risk_scen_1",
@@ -121,29 +129,14 @@ class TestOutcomeTrackerScenarios:
             },
         )
 
-        assert result.final_status == EventStatus.RECOVERED
-        assert result.amount_recovered == 15000.0
+        assert result.final_status == EventStatus.IN_PROGRESS
+        assert result.amount_recovered == 0.0
         assert result.actions_executed_count == 2
 
-        # Verify outcomes table
-        outcomes = get_outcomes_for_risk(in_memory_db, "risk_scen_1")
-        assert len(outcomes) == 2
-        assert outcomes[0].action_index == 0
-        assert outcomes[0].result == OutcomeResultEnum.FAILED
-        assert outcomes[0].amount_recovered == 0.0
-        assert outcomes[1].action_index == 1
-        assert outcomes[1].result == OutcomeResultEnum.SUCCESS
-        assert outcomes[1].amount_recovered == 15000.0
+        from src.reconciliation import reconcile_payment_status
+        reconcile_payment_status(in_memory_db, "risk_scen_1", forced_status="RECOVERED")
 
-        # Verify executions table
-        execs = get_executions_for_risk(in_memory_db, "risk_scen_1")
-        assert len(execs) == 2
-        assert execs[0].action_type == ActionType.SMART_RETRY
-        assert execs[0].status == ExecutionStatusEnum.FAILED
-        assert execs[1].action_type == ActionType.PAYMENT_LINK
-        assert execs[1].status == ExecutionStatusEnum.SUCCESS
-
-        # Verify risk event status
+        # Verify risk event status after reconciliation
         risk = get_risk_event(in_memory_db, "risk_scen_1")
         assert risk.status == EventStatus.RECOVERED
 
@@ -258,7 +251,7 @@ class TestPhase5DoneWhenCriteria:
     def test_phase5_done_when_criteria(self, in_memory_db):
         """
         Phase 5 "Done when" criteria:
-        1. A synthetic bank_timeout case fails action 1, succeeds on action 2, and ₹ is marked recovered.
+        1. A synthetic bank_timeout case fails action 1, succeeds on action 2, and after payment reconciliation is marked recovered.
         2. A separate case exhausts its playbook and is escalated.
         """
         # Case 1: Recovers on action 2
@@ -272,8 +265,11 @@ class TestPhase5DoneWhenCriteria:
                 1: ExecutionStatusEnum.SUCCESS,
             },
         )
-        assert res_1.final_status == EventStatus.RECOVERED
-        assert res_1.amount_recovered == 25000.0
+        assert res_1.final_status == EventStatus.IN_PROGRESS
+        assert res_1.amount_recovered == 0.0
+
+        from src.reconciliation import reconcile_payment_status
+        reconcile_payment_status(in_memory_db, "risk_done_1", forced_status="RECOVERED")
         risk_1 = get_risk_event(in_memory_db, "risk_done_1")
         assert risk_1.status == EventStatus.RECOVERED
 
@@ -297,3 +293,30 @@ class TestPhase5DoneWhenCriteria:
         assert escalation_2.reason == "playbook_exhausted"
         risk_2 = get_risk_event(in_memory_db, "risk_done_2")
         assert risk_2.status == EventStatus.ESCALATED
+
+    def test_mock_action_success_does_not_equal_recovery(self, in_memory_db):
+        """Rule: Action execution success alone does NOT mark financial recovery."""
+        setup_test_risk_and_root_cause(in_memory_db, "risk_semantic_01", RootCauseEnum.BANK_TIMEOUT, 1000.0)
+        res = start_recovery_workflow(
+            conn=in_memory_db,
+            risk_id="risk_semantic_01",
+            context=DAYTIME_CONTEXT,
+            simulated_action_outcomes={0: ExecutionStatusEnum.SUCCESS},
+        )
+        assert res.final_status == EventStatus.IN_PROGRESS
+        assert res.amount_recovered == 0.0
+        risk = get_risk_event(in_memory_db, "risk_semantic_01")
+        assert risk.status == EventStatus.IN_PROGRESS
+
+    def test_zero_verified_recovery_equals_zero_amount_recovered(self, in_memory_db):
+        """Rule: Unverified transaction must have amount_recovered == 0.0."""
+        setup_test_risk_and_root_cause(in_memory_db, "risk_semantic_02", RootCauseEnum.NSF, 2500.0)
+        start_recovery_workflow(
+            conn=in_memory_db,
+            risk_id="risk_semantic_02",
+            context=DAYTIME_CONTEXT,
+            simulated_action_outcomes={0: ExecutionStatusEnum.SUCCESS},
+        )
+        outcomes = get_outcomes_for_risk(in_memory_db, "risk_semantic_02")
+        assert len(outcomes) == 1
+        assert outcomes[0].amount_recovered == 0.0

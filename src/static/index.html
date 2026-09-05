@@ -169,6 +169,16 @@
       color: var(--text-primary);
     }
 
+    .btn-danger {
+      background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+      color: #fff;
+      box-shadow: 0 4px 14px rgba(239, 68, 68, 0.3);
+    }
+    .btn-danger:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(239, 68, 68, 0.45);
+    }
+
     /* Live Pulse */
     .live-badge {
       display: inline-flex;
@@ -409,6 +419,35 @@
       box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
     }
 
+    .confirm-modal-backdrop {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(6px);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 200;
+      padding: 20px;
+    }
+    .confirm-modal-content {
+      background: #0f172a;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 16px;
+      max-width: 440px;
+      width: 100%;
+      padding: 24px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);
+      animation: modalFadeIn 0.15s ease-out;
+    }
+    @keyframes modalFadeIn {
+      from { opacity: 0; transform: scale(0.95); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
     .modal-header {
       display: flex;
       justify-content: space-between;
@@ -475,6 +514,8 @@
     .timeline-dot.pass { border-color: #10b981; color: #10b981; }
     .timeline-dot.block { border-color: #f43f5e; color: #f43f5e; }
     .timeline-dot.recovered { border-color: #10b981; background: #10b981; color: #fff; }
+    .timeline-dot.auth { border-color: #f59e0b; color: #f59e0b; background: rgba(245, 158, 11, 0.15); }
+    .timeline-dot.webhook { border-color: #38bdf8; color: #38bdf8; background: rgba(56, 189, 248, 0.15); }
 
     .step-card {
       background: rgba(255, 255, 255, 0.02);
@@ -580,16 +621,21 @@
       const [batchStatus, setBatchStatus] = useState({ is_running: false, total: 0, processed: 0 });
       const [selectedTx, setSelectedTx] = useState(null);
       const [filterStatus, setFilterStatus] = useState('ALL');
+      const [viewMode, setViewMode] = useState('demo');
       const [isLoading, setIsLoading] = useState(true);
+      const [showResetConfirm, setShowResetConfirm] = useState(false);
+      const [showRerunConfirm, setShowRerunConfirm] = useState(false);
+      const [isResetting, setIsResetting] = useState(false);
 
-      const fetchData = async () => {
+      const fetchData = async (targetView) => {
+        const v = targetView !== undefined ? targetView : viewMode;
         try {
           const [mRes, rcRes, actRes, escRes, txRes, bRes] = await Promise.all([
-            fetch('/api/metrics').then(r => r.json()),
-            fetch('/api/breakdown/root-cause').then(r => r.json()),
-            fetch('/api/breakdown/actions').then(r => r.json()),
-            fetch('/api/breakdown/escalations').then(r => r.json()),
-            fetch('/api/transactions?limit=200').then(r => r.json()),
+            fetch(`/api/metrics?view=${v}`).then(r => r.json()),
+            fetch(`/api/breakdown/root-cause?view=${v}`).then(r => r.json()),
+            fetch(`/api/breakdown/actions?view=${v}`).then(r => r.json()),
+            fetch(`/api/breakdown/escalations?view=${v}`).then(r => r.json()),
+            fetch(`/api/transactions?limit=200&view=${v}`).then(r => r.json()),
             fetch('/api/batch/status').then(r => r.json())
           ]);
           setMetrics(mRes);
@@ -605,20 +651,44 @@
       };
 
       useEffect(() => {
-        fetchData();
-        const interval = setInterval(fetchData, 1000);
+        fetchData(viewMode);
+        const interval = setInterval(() => fetchData(viewMode), 1000);
         return () => clearInterval(interval);
-      }, []);
+      }, [viewMode]);
 
       const runBatch = async () => {
-        await fetch('/api/batch/run?size=60&speed=normal', { method: 'POST' });
-        fetchData();
+        try {
+          await fetch('/api/batch/run?size=65&speed=normal', { method: 'POST' });
+          await fetchData('demo');
+        } catch (err) {
+          console.error("Failed to run batch:", err);
+        }
       };
 
-      const resetDb = async () => {
-        if (confirm("Reset database state for clean test run?")) {
+      const executeReset = async () => {
+        setIsResetting(true);
+        setShowResetConfirm(false);
+        try {
           await fetch('/api/batch/reset', { method: 'POST' });
-          fetchData();
+          await fetchData('demo');
+        } catch (err) {
+          console.error("Failed to reset demo data:", err);
+        } finally {
+          setIsResetting(false);
+        }
+      };
+
+      const executeRerun = async () => {
+        setIsResetting(true);
+        setShowRerunConfirm(false);
+        try {
+          await fetch('/api/batch/reset', { method: 'POST' });
+          await fetch('/api/batch/run?size=65&speed=normal', { method: 'POST' });
+          await fetchData('demo');
+        } catch (err) {
+          console.error("Failed to rerun batch:", err);
+        } finally {
+          setIsResetting(false);
         }
       };
 
@@ -655,20 +725,103 @@
                 <span>SYSTEM LIVE</span>
               </div>
 
-              <button 
-                className="btn btn-primary" 
-                onClick={runBatch} 
-                disabled={batchStatus.is_running}
-              >
-                {batchStatus.is_running 
-                  ? `Processing (${batchStatus.processed}/${batchStatus.total})...` 
-                  : "▶ Run Synthetic Batch (65 Events)"}
-              </button>
-
-              <button className="btn btn-secondary" onClick={resetDb} disabled={batchStatus.is_running}>
-                ↻ Reset State
-              </button>
+              {viewMode === 'demo' ? (
+                <>
+                  {batchStatus.is_running ? (
+                    <>
+                      <button 
+                        id="btn-run-batch"
+                        className="btn btn-primary" 
+                        disabled={true}
+                      >
+                        Processing ({batchStatus.processed}/{batchStatus.total})...
+                      </button>
+                      <button 
+                        id="btn-reset-state"
+                        className="btn btn-secondary" 
+                        disabled={true}
+                      >
+                        ↻ Reset State
+                      </button>
+                    </>
+                  ) : (metrics && metrics.transactions_count >= 65) ? (
+                    <>
+                      <button 
+                        id="btn-run-batch"
+                        className="btn btn-primary" 
+                        onClick={runBatch}
+                        title="Canonical 65-event batch already loaded"
+                        style={{ opacity: 0.9 }}
+                      >
+                        ✓ Synthetic Batch Loaded (65 Events)
+                      </button>
+                      <button 
+                        id="btn-rerun-batch"
+                        className="btn btn-secondary" 
+                        onClick={() => setShowRerunConfirm(true)}
+                        disabled={isResetting}
+                      >
+                        ↻ Re-run Synthetic Batch
+                      </button>
+                      <button 
+                        id="btn-reset-state"
+                        className="btn btn-secondary" 
+                        onClick={() => setShowResetConfirm(true)} 
+                        disabled={isResetting}
+                      >
+                        {isResetting ? "Resetting..." : "↻ Reset State"}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button 
+                        id="btn-run-batch"
+                        className="btn btn-primary" 
+                        onClick={runBatch} 
+                        disabled={isResetting}
+                      >
+                        ▶ Run Synthetic Batch (65 Events)
+                      </button>
+                      <button 
+                        id="btn-reset-state"
+                        className="btn btn-secondary" 
+                        onClick={() => setShowResetConfirm(true)} 
+                        disabled={isResetting}
+                      >
+                        {isResetting ? "Resetting..." : "↻ Reset State"}
+                      </button>
+                    </>
+                  )}
+                </>
+              ) : (
+                <div style={{ fontSize: '12px', color: '#10b981', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)', padding: '6px 14px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>🔒</span>
+                  <span>Live Test Mode Evidence Immutable & Protected</span>
+                </div>
+              )}
             </div>
+          </div>
+
+          {/* View Mode Selector Tabs */}
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
+            <button
+              id="tab-demo-view"
+              className={`tab-btn ${viewMode === 'demo' ? 'active' : ''}`}
+              onClick={() => { setViewMode('demo'); fetchData('demo'); }}
+              style={{ fontSize: '13px', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              <span>🎯</span>
+              <span>Canonical Synthetic Demo (65 Events)</span>
+            </button>
+            <button
+              id="tab-live-view"
+              className={`tab-btn ${viewMode === 'live' ? 'active' : ''}`}
+              onClick={() => { setViewMode('live'); fetchData('live'); }}
+              style={{ fontSize: '13px', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              <span>🔴</span>
+              <span>Live Razorpay Test Evidence (1 Event)</span>
+            </button>
           </div>
 
           {/* Batch Progress Bar if Running */}
@@ -708,7 +861,7 @@
             <div className="kpi-card purple">
               <div className="kpi-label">Recovery Rate</div>
               <div className="kpi-value">
-                {metrics ? metrics.recovery_rate_pct : 0}%
+                {metrics && metrics.total_revenue_at_risk > 0 ? Number(metrics.recovery_rate_pct).toFixed(2) : '0.00'}%
               </div>
               <div className="kpi-subtext">Total recovered / total at risk</div>
             </div>
@@ -923,6 +1076,78 @@
             </div>
           </div>
 
+          {/* Reset Confirmation Modal */}
+          {showResetConfirm && (
+            <div className="confirm-modal-backdrop" onClick={() => setShowResetConfirm(false)}>
+              <div className="confirm-modal-content" onClick={e => e.stopPropagation()}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                  <div style={{ fontSize: '24px', background: 'rgba(239, 68, 68, 0.15)', padding: '8px', borderRadius: '10px', display: 'flex' }}>⚠️</div>
+                  <div>
+                    <h3 style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)', margin: 0 }}>
+                      Reset synthetic demo data?
+                    </h3>
+                    <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>
+                      This will clear recovery.db and return synthetic KPIs to zero. Live Razorpay evidence will NOT be touched.
+                    </p>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
+                  <button 
+                    id="btn-cancel-reset" 
+                    className="btn btn-secondary" 
+                    onClick={() => setShowResetConfirm(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    id="btn-confirm-reset" 
+                    className="btn btn-danger" 
+                    onClick={executeReset}
+                    disabled={isResetting}
+                  >
+                    {isResetting ? "Resetting..." : "Reset"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Re-run Confirmation Modal */}
+          {showRerunConfirm && (
+            <div className="confirm-modal-backdrop" onClick={() => setShowRerunConfirm(false)}>
+              <div className="confirm-modal-content" onClick={e => e.stopPropagation()}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                  <div style={{ fontSize: '24px', background: 'rgba(16, 185, 129, 0.15)', padding: '8px', borderRadius: '10px', display: 'flex' }}>↻</div>
+                  <div>
+                    <h3 style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)', margin: 0 }}>
+                      Re-run the canonical 65-event demo from a clean state?
+                    </h3>
+                    <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>
+                      This will reset the demo database and execute the deterministic 65-event recovery workflow. Live Razorpay evidence will NOT be touched.
+                    </p>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
+                  <button 
+                    id="btn-cancel-rerun" 
+                    className="btn btn-secondary" 
+                    onClick={() => setShowRerunConfirm(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    id="btn-confirm-rerun" 
+                    className="btn btn-primary" 
+                    onClick={executeRerun}
+                    disabled={isResetting}
+                  >
+                    {isResetting ? "Re-running..." : "Re-run"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Drill-down Modal */}
           {selectedTx && (
             <div className="modal-backdrop" onClick={() => setSelectedTx(null)}>
@@ -948,21 +1173,72 @@
                   {selectedTx.audit_trail.map((step, idx) => {
                     const isPass = step.decision === 'guardrail_pass';
                     const isBlock = step.decision === 'guardrail_block';
-                    const isRec = step.decision === 'revenue_recovered';
+                    const isRec = step.decision === 'revenue_recovered' || step.decision === 'payment_status_reconciled_recovered';
+                    const isAuth = step.decision === 'payment_authorized_pending_capture';
+                    const isWebhook = step.layer === 'webhook_processor' || step.decision === 'webhook_received';
+
+                    let inputData = {};
+                    try { inputData = JSON.parse(step.input_json || '{}'); } catch (e) {}
+                    let outputData = {};
+                    try { outputData = JSON.parse(step.output_json || '{}'); } catch (e) {}
+
+                    const hasCausalMeta = inputData.source_event || inputData.razorpay_payment_id || inputData.webhook_event_id || inputData.verification_source;
 
                     return (
                       <div key={step.id || idx} className="timeline-step">
-                        <div className={`timeline-dot ${isPass ? 'pass' : isBlock ? 'block' : isRec ? 'recovered' : ''}`}>
+                        <div className={`timeline-dot ${isPass ? 'pass' : isBlock ? 'block' : isRec ? 'recovered' : isAuth ? 'auth' : isWebhook ? 'webhook' : ''}`}>
                           {idx + 1}
                         </div>
                         <div className="step-card">
                           <div className="step-header">
                             <div>
-                              <span className="step-layer">{step.layer}</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span className="step-layer">{step.layer}</span>
+                                {step.decision === 'webhook_received' && (
+                                  <span style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.3)', borderRadius: '4px', padding: '2px 8px', fontSize: '10px', fontWeight: '700', textTransform: 'uppercase' }}>
+                                    Webhook Ingress: {inputData.event_name || 'verified'}
+                                  </span>
+                                )}
+                                {step.decision === 'payment_authorized_pending_capture' && (
+                                  <span style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: '4px', padding: '2px 8px', fontSize: '10px', fontWeight: '700', textTransform: 'uppercase' }}>
+                                    Authorized (Pending Capture) — Not Recovered
+                                  </span>
+                                )}
+                                {step.decision === 'payment_status_reconciled_recovered' && (
+                                  <span style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: '4px', padding: '2px 8px', fontSize: '10px', fontWeight: '700', textTransform: 'uppercase' }}>
+                                    Verified Financial State → RECOVERED
+                                  </span>
+                                )}
+                                {step.decision === 'monotonic_state_preserved' && (
+                                  <span style={{ background: 'rgba(168, 85, 247, 0.15)', color: '#c084fc', border: '1px solid rgba(168, 85, 247, 0.3)', borderRadius: '4px', padding: '2px 8px', fontSize: '10px', fontWeight: '700', textTransform: 'uppercase' }}>
+                                    Terminal State Preserved (Monotonic)
+                                  </span>
+                                )}
+                              </div>
                               <div className="step-decision">{step.decision}</div>
                             </div>
                             <span className="step-time">{new Date(step.timestamp).toLocaleTimeString()}</span>
                           </div>
+
+                          {hasCausalMeta && (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '6px 10px', background: 'rgba(255, 255, 255, 0.03)', borderRadius: '6px', marginTop: '6px', fontSize: '11px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                              {inputData.source_event && (
+                                <span><strong style={{ color: '#94a3b8' }}>Source:</strong> <code style={{ color: '#38bdf8' }}>{inputData.source_event}</code></span>
+                              )}
+                              {inputData.razorpay_payment_id && (
+                                <span><strong style={{ color: '#94a3b8' }}>Payment ID:</strong> <code style={{ color: '#e2e8f0' }}>{inputData.razorpay_payment_id}</code></span>
+                              )}
+                              {inputData.webhook_event_id && (
+                                <span><strong style={{ color: '#94a3b8' }}>Webhook ID:</strong> <code style={{ color: '#e2e8f0' }}>{inputData.webhook_event_id}</code></span>
+                              )}
+                              {inputData.verification_source && (
+                                <span><strong style={{ color: '#94a3b8' }}>Verification:</strong> <code style={{ color: '#10b981' }}>{inputData.verification_source}</code></span>
+                              )}
+                              {inputData.amount_recovered != null && (
+                                <span><strong style={{ color: '#94a3b8' }}>Amount:</strong> <code style={{ color: '#10b981' }}>₹{inputData.amount_recovered}</code></span>
+                              )}
+                            </div>
+                          )}
 
                           <div style={{ marginTop: '8px' }}>
                             <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Input Payload:</div>

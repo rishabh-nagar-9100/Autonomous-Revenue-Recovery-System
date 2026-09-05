@@ -12,6 +12,9 @@ from src.integrations.config import (
     RAZORPAY_KEY_ID,
     RAZORPAY_KEY_SECRET,
     RAZORPAY_WEBHOOK_SECRET,
+    get_razorpay_key_id,
+    get_razorpay_key_secret,
+    get_razorpay_webhook_secret,
 )
 
 
@@ -27,9 +30,9 @@ class RazorpayClientAdapter:
         key_secret: Optional[str] = None,
         webhook_secret: Optional[str] = None,
     ):
-        self.key_id = key_id or RAZORPAY_KEY_ID
-        self.key_secret = key_secret or RAZORPAY_KEY_SECRET
-        self.webhook_secret = webhook_secret or RAZORPAY_WEBHOOK_SECRET
+        self.key_id = key_id or get_razorpay_key_id()
+        self.key_secret = key_secret or get_razorpay_key_secret()
+        self.webhook_secret = webhook_secret or get_razorpay_webhook_secret()
         self._client = razorpay.Client(auth=(self.key_id, self.key_secret))
 
     def create_payment_link(
@@ -51,7 +54,7 @@ class RazorpayClientAdapter:
             "description": description,
             "customer": {
                 "name": f"Customer_{customer_id}",
-                "contact": "+919999999999",
+                "contact": "+919876543210",
                 "email": f"{customer_id}@example.com" if "@" not in customer_id else customer_id,
             },
             "notify": {"sms": True, "email": True},
@@ -59,6 +62,7 @@ class RazorpayClientAdapter:
             "notes": {
                 "customer_id": customer_id,
                 "system": "AI_Revenue_Recovery",
+                "reference_id": reference_id or "",
             },
         }
         if reference_id:
@@ -76,6 +80,13 @@ class RazorpayClientAdapter:
             }
         except (BadRequestError, GatewayError, ServerError, SignatureVerificationError, Exception) as err:
             raise RuntimeError(f"Razorpay Payment Link creation failed: {str(err)}") from err
+
+    def fetch_payment_link(self, payment_link_id: str) -> Dict[str, Any]:
+        """Fetches payment link details by payment link ID."""
+        try:
+            return self._client.payment_link.fetch(payment_link_id)
+        except (BadRequestError, GatewayError, ServerError, SignatureVerificationError, Exception) as err:
+            raise RuntimeError(f"Razorpay fetch payment link failed for ID {payment_link_id}: {str(err)}") from err
 
     def fetch_payment(self, payment_id: str) -> Dict[str, Any]:
         """Fetches payment details by payment ID."""

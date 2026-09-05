@@ -62,7 +62,7 @@ class TestPhase9DemoRehearsal:
         assert multi_step is not None
         detail1 = get_transaction_detail(clean_db, multi_step["risk_id"])
         decisions1 = [e["decision"] for e in detail1["audit_trail"]]
-        assert "revenue_recovered" in decisions1
+        assert any(d in decisions1 for d in ["revenue_recovered", "payment_status_reconciled_recovered"])
 
         # Narrative 2: Guardrail compliance block
         blocked = next((t for t in tx_list if (t.get("escalation_reason") or "").startswith("guardrail_blocked")), None)
